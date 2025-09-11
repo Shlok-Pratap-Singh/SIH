@@ -162,6 +162,8 @@ export const insertTouristSchema = createInsertSchema(tourists).omit({
   qrCodeData: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  validUntil: z.string().transform((str) => new Date(str)),
 });
 
 export const insertTouristLocationSchema = createInsertSchema(touristLocations).omit({
