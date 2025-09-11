@@ -78,9 +78,13 @@ export class DatabaseStorage implements IStorage {
       .insert(users)
       .values(userData)
       .onConflictDoUpdate({
-        target: users.id,
+        target: users.email,
         set: {
-          ...userData,
+          id: userData.id, // Update the ID to match the OAuth provider
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          profileImageUrl: userData.profileImageUrl,
+          role: userData.role,
           updatedAt: new Date(),
         },
       })
@@ -244,17 +248,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getNewsUpdates(state?: string, limit = 20): Promise<NewsUpdate[]> {
-    const query = db
+    const baseConditions = eq(newsUpdates.isActive, true);
+    const conditions = state 
+      ? and(baseConditions, eq(newsUpdates.state, state))
+      : baseConditions;
+
+    return await db
       .select()
       .from(newsUpdates)
-      .where(eq(newsUpdates.isActive, true))
+      .where(conditions)
       .orderBy(desc(newsUpdates.publishedAt))
       .limit(limit);
-
-    if (state) {
-      return await query.where(and(eq(newsUpdates.state, state), eq(newsUpdates.isActive, true)));
-    }
-    return await query;
   }
 
   async updateNewsUpdate(id: string, data: Partial<NewsUpdate>): Promise<NewsUpdate> {
@@ -276,15 +280,15 @@ export class DatabaseStorage implements IStorage {
 
   // Safety zones
   async getSafetyZones(state?: string): Promise<SafetyZone[]> {
-    const query = db
+    const baseConditions = eq(safetyZones.isActive, true);
+    const conditions = state 
+      ? and(baseConditions, eq(safetyZones.state, state))
+      : baseConditions;
+
+    return await db
       .select()
       .from(safetyZones)
-      .where(eq(safetyZones.isActive, true));
-
-    if (state) {
-      return await query.where(and(eq(safetyZones.state, state), eq(safetyZones.isActive, true)));
-    }
-    return await query;
+      .where(conditions);
   }
 
   async getSafetyZoneByCoordinates(lat: number, lng: number): Promise<SafetyZone | undefined> {
@@ -297,15 +301,15 @@ export class DatabaseStorage implements IStorage {
 
   // Police stations
   async getPoliceStations(state?: string): Promise<PoliceStation[]> {
-    const query = db
+    const baseConditions = eq(policeStations.isActive, true);
+    const conditions = state 
+      ? and(baseConditions, eq(policeStations.state, state))
+      : baseConditions;
+
+    return await db
       .select()
       .from(policeStations)
-      .where(eq(policeStations.isActive, true));
-
-    if (state) {
-      return await query.where(and(eq(policeStations.state, state), eq(policeStations.isActive, true)));
-    }
-    return await query;
+      .where(conditions);
   }
 
   async getNearestPoliceStation(lat: number, lng: number): Promise<PoliceStation | undefined> {
