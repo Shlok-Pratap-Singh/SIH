@@ -58,6 +58,7 @@ async function upsertUser(
   claims: any,
 ) {
   await storage.upsertUser({
+    id: claims["sub"], // This is the crucial missing field!
     email: claims["email"],
     firstName: claims["first_name"],
     lastName: claims["last_name"],

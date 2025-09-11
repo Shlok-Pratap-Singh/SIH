@@ -149,6 +149,7 @@ export const panicAlertsRelations = relations(panicAlerts, ({ one }) => ({
 
 // Zod schemas
 export const insertUserSchema = createInsertSchema(users).pick({
+  id: true,
   email: true,
   firstName: true,
   lastName: true,
