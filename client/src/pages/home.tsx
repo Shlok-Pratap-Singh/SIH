@@ -116,6 +116,14 @@ export default function Home() {
             <div className="col-span-2">
               <PanicButton 
                 tourist={userProfile.tourist}
+                currentLocation={currentLocation ? {
+                  latitude: currentLocation.latitude,
+                  longitude: currentLocation.longitude,
+                  address: currentLocation.address,
+                  safetyZone: currentLocation.safetyZone,
+                  safetyScore: currentLocation.safetyScore,
+                  accuracy: currentLocation.accuracy
+                } : undefined}
                 data-testid="button-panic"
               />
             </div>

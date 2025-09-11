@@ -10,6 +10,13 @@ import {
   insertNewsUpdateSchema,
 } from "@shared/schema";
 
+// Interface for authenticated WebSocket clients
+interface AuthenticatedWebSocketClient extends WebSocket {
+  userId?: string;
+  userRole?: string;
+  isAuthenticated?: boolean;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
@@ -100,10 +107,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Broadcast emergency alert
       broadcastEmergencyAlert(alert, tourist, nearestStation);
       
-      res.json(alert);
+      // Auto-resolve alert after 4 hours if not manually resolved
+      setTimeout(async () => {
+        try {
+          const currentAlert = await storage.getPanicAlert(alert.id);
+          if (currentAlert && currentAlert.status === 'active') {
+            await storage.updatePanicAlert(alert.id, {
+              status: 'auto-resolved',
+              resolvedAt: new Date().toISOString(),
+              notes: 'Auto-resolved after 4 hours without manual resolution'
+            });
+            console.log(`Auto-resolved panic alert ${alert.id} after 4 hours`);
+          }
+        } catch (error) {
+          console.error(`Failed to auto-resolve alert ${alert.id}:`, error);
+        }
+      }, 4 * 60 * 60 * 1000); // 4 hours
+      
+      res.json({ 
+        id: alert.id,
+        message: "Emergency alert sent successfully", 
+        status: alert.status,
+        nearestPoliceStation: nearestStation?.name || 'Unknown',
+        estimatedResponseTime: nearestStation ? '5-15 minutes' : 'Response time unknown',
+        createdAt: alert.createdAt
+      });
     } catch (error) {
-      console.error("Error creating panic alert:", error);
-      res.status(400).json({ message: "Failed to create panic alert" });
+      console.error('Panic alert error:', error);
+      
+      // Still try to log the attempt even if database fails
+      console.log(`⚠️ FAILED EMERGENCY ALERT: User attempted alert but system failed - ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      res.status(500).json({ 
+        message: "Failed to send emergency alert", 
+        error: error instanceof Error ? error.message : "Internal server error" 
+      });
     }
   });
 
@@ -194,7 +232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (updateData.status === 'responded' || updateData.status === 'resolved') {
         updateData.respondedBy = req.user.claims.sub;
         if (updateData.status === 'resolved') {
-          updateData.resolvedAt = new Date();
+          updateData.resolvedAt = new Date().toISOString();
         }
       }
 
@@ -285,23 +323,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
 
-  // WebSocket server for real-time updates
+  // WebSocket server for real-time updates with authentication
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
   
-  wss.on('connection', (ws: WebSocket) => {
-    console.log('WebSocket connection established');
+  wss.on('connection', async (ws: AuthenticatedWebSocketClient, req) => {
+    console.log('WebSocket connection attempted');
+    
+    // Extract session from request to authenticate WebSocket connection
+    const sessionId = req.headers.cookie?.split(';')
+      .find(cookie => cookie.trim().startsWith('connect.sid='))
+      ?.split('=')[1]?.split('.')[0]?.replace('s:', '');
+    
+    if (!sessionId) {
+      console.log('WebSocket connection rejected: No session');
+      ws.close(1008, 'Authentication required');
+      return;
+    }
+    
+    try {
+      // Verify session exists and get user info
+      const sessionData = await storage.getSessionData(sessionId);
+      if (!sessionData || !sessionData.userId) {
+        console.log('WebSocket connection rejected: Invalid session');
+        ws.close(1008, 'Invalid session');
+        return;
+      }
+      
+      const user = await storage.getUser(sessionData.userId);
+      if (!user) {
+        console.log('WebSocket connection rejected: User not found');
+        ws.close(1008, 'User not found');
+        return;
+      }
+      
+      // Authenticate WebSocket client
+      ws.userId = user.id;
+      ws.userRole = user.role || 'tourist';
+      ws.isAuthenticated = true;
+      
+      console.log(`WebSocket authenticated: User ${user.id}, Role: ${ws.userRole}`);
+      
+    } catch (error) {
+      console.error('WebSocket authentication error:', error);
+      ws.close(1008, 'Authentication failed');
+      return;
+    }
     
     ws.on('message', (message: string) => {
       try {
         const data = JSON.parse(message);
-        console.log('Received WebSocket message:', data);
+        console.log('Received WebSocket message from authenticated user:', ws.userId, data);
       } catch (error) {
         console.error('Invalid WebSocket message:', error);
       }
     });
 
     ws.on('close', () => {
-      console.log('WebSocket connection closed');
+      console.log('WebSocket connection closed for user:', ws.userId);
     });
   });
 
@@ -315,30 +393,119 @@ function broadcastLocationUpdate(location: any, tourist: any) {
   const wss = (global as any).wss;
   if (!wss) return;
 
-  const message = JSON.stringify({
+  // Only send location updates to police/admin users for privacy
+  const policeMessage = JSON.stringify({
     type: 'locationUpdate',
-    data: { location, tourist }
+    data: { 
+      location, 
+      tourist: {
+        id: tourist.id,
+        fullName: tourist.fullName,
+        digitalId: tourist.digitalId
+      }
+    }
   });
 
-  wss.clients.forEach((client: WebSocket) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
+  wss.clients.forEach((client: AuthenticatedWebSocketClient) => {
+    if (client.readyState === WebSocket.OPEN && 
+        client.isAuthenticated && 
+        (client.userRole === 'police' || client.userRole === 'admin')) {
+      client.send(policeMessage);
     }
   });
 }
 
 function broadcastEmergencyAlert(alert: any, tourist: any, policeStation: any) {
   const wss = (global as any).wss;
-  if (!wss) return;
+  if (!wss) {
+    console.error('WebSocket server not available for emergency broadcast');
+    return;
+  }
 
-  const message = JSON.stringify({
+  // Sanitized emergency data for general broadcast (no PII)
+  const publicEmergencyData = {
     type: 'emergencyAlert',
-    data: { alert, tourist, policeStation }
-  });
+    timestamp: new Date().toISOString(),
+    priority: 'critical',
+    data: { 
+      alert: {
+        id: alert.id,
+        // Approximate coordinates (reduced precision for privacy)
+        latitude: (Math.floor(parseFloat(alert.latitude) * 100) / 100).toString(),
+        longitude: (Math.floor(parseFloat(alert.longitude) * 100) / 100).toString(),
+        address: alert.address,
+        priority: alert.priority,
+        status: alert.status,
+        createdAt: alert.createdAt
+      },
+      // No tourist PII in public broadcast
+      emergency: {
+        type: 'panic_alert',
+        area: alert.address?.split(',')[0] || 'Unknown location'
+      }
+    }
+  };
 
-  wss.clients.forEach((client: WebSocket) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
+  // Full emergency data for police/admin users (includes PII)
+  const policeEmergencyData = {
+    type: 'emergencyAlert',
+    timestamp: new Date().toISOString(),
+    priority: 'critical',
+    data: { 
+      alert: {
+        id: alert.id,
+        latitude: alert.latitude,
+        longitude: alert.longitude,
+        address: alert.address,
+        priority: alert.priority,
+        status: alert.status,
+        createdAt: alert.createdAt
+      }, 
+      tourist: {
+        id: tourist.id,
+        fullName: tourist.fullName,
+        digitalId: tourist.digitalId,
+        phone: tourist.phone,
+        emergencyContact: tourist.emergencyContact
+      }, 
+      policeStation: policeStation ? {
+        id: policeStation.id,
+        name: policeStation.name,
+        contactNumber: policeStation.contactNumber,
+        address: policeStation.address,
+        latitude: policeStation.latitude,
+        longitude: policeStation.longitude
+      } : null
+    }
+  };
+
+  const publicMessage = JSON.stringify(publicEmergencyData);
+  const policeMessage = JSON.stringify(policeEmergencyData);
+  let publicBroadcastCount = 0;
+  let policeBroadcastCount = 0;
+  let failureCount = 0;
+
+  wss.clients.forEach((client: AuthenticatedWebSocketClient) => {
+    if (client.readyState === WebSocket.OPEN && client.isAuthenticated) {
+      try {
+        if (client.userRole === 'police' || client.userRole === 'admin') {
+          // Send full data to police/admin
+          client.send(policeMessage);
+          policeBroadcastCount++;
+        } else {
+          // Send sanitized data to regular users
+          client.send(publicMessage);
+          publicBroadcastCount++;
+        }
+      } catch (error) {
+        console.error('Failed to send emergency alert to client:', error);
+        failureCount++;
+      }
     }
   });
+
+  console.log(`Emergency alert broadcast - ID: ${alert.id}, Police/Admin: ${policeBroadcastCount}, Public: ${publicBroadcastCount}, Failures: ${failureCount}`);
+  
+  // Also log the emergency for audit purposes
+  console.log(`🚨 EMERGENCY ALERT: Tourist ${tourist.fullName} (${tourist.digitalId}) at ${alert.address} - Alert ID: ${alert.id}`);
 }

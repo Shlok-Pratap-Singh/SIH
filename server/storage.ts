@@ -60,6 +60,9 @@ export interface IStorage {
   // Police stations
   getPoliceStations(state?: string): Promise<PoliceStation[]>;
   getNearestPoliceStation(lat: number, lng: number): Promise<PoliceStation | undefined>;
+  
+  // Session management for WebSocket authentication
+  getSessionData(sessionId: string): Promise<{ userId?: string } | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -319,6 +322,37 @@ export class DatabaseStorage implements IStorage {
     }
 
     return nearest;
+  }
+
+  // Session management for WebSocket authentication
+  async getSessionData(sessionId: string): Promise<{ userId?: string } | null> {
+    try {
+      // Query the sessions table directly for session data
+      const result = await db.execute(sql`
+        SELECT sess 
+        FROM sessions 
+        WHERE sid = ${sessionId} 
+        AND expire > NOW()
+      `);
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      // Parse session data to extract user info
+      const sessionData = result.rows[0];
+      const sess = sessionData.sess as any;
+      
+      // Extract user ID from Passport session structure
+      if (sess.passport?.user?.claims?.sub) {
+        return { userId: sess.passport.user.claims.sub };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error retrieving session data:', error);
+      return null;
+    }
   }
 
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
