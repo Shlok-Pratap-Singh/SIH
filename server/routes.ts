@@ -114,7 +114,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (currentAlert && currentAlert.status === 'active') {
             await storage.updatePanicAlert(alert.id, {
               status: 'auto-resolved',
-              resolvedAt: new Date().toISOString(),
+              resolvedAt: new Date(),
               notes: 'Auto-resolved after 4 hours without manual resolution'
             });
             console.log(`Auto-resolved panic alert ${alert.id} after 4 hours`);
@@ -279,7 +279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Check for internal request header or require authentication
       const internalHeader = req.headers['x-internal-request'];
-      const isAuthenticated = req.user?.claims?.sub;
+      const isAuthenticated = (req.user as any)?.claims?.sub;
       
       if (!internalHeader && !isAuthenticated) {
         return res.status(401).json({ message: "Unauthorized - internal use only" });
@@ -287,7 +287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // If authenticated user, check role
       if (isAuthenticated) {
-        const user = await storage.getUser(req.user.claims.sub);
+        const user = await storage.getUser((req.user as any).claims.sub);
         if (user?.role !== 'admin') {
           return res.status(403).json({ message: "Access denied - admin only" });
         }
