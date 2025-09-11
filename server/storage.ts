@@ -52,6 +52,7 @@ export interface IStorage {
   createNewsUpdate(news: InsertNewsUpdate): Promise<NewsUpdate>;
   getNewsUpdates(state?: string, limit?: number): Promise<NewsUpdate[]>;
   updateNewsUpdate(id: string, data: Partial<NewsUpdate>): Promise<NewsUpdate>;
+  deleteOldNewsUpdates(beforeDate: Date): Promise<number>;
 
   // Safety zones
   getSafetyZones(state?: string): Promise<SafetyZone[]>;
@@ -263,6 +264,14 @@ export class DatabaseStorage implements IStorage {
       .where(eq(newsUpdates.id, id))
       .returning();
     return news;
+  }
+
+  async deleteOldNewsUpdates(beforeDate: Date): Promise<number> {
+    const result = await db
+      .delete(newsUpdates)
+      .where(sql`${newsUpdates.publishedAt} < ${beforeDate.toISOString()}`);
+    
+    return result.rowCount || 0;
   }
 
   // Safety zones

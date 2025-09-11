@@ -244,7 +244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // NewsAPI integration for fetching external news
+  // Enhanced NewsAPI integration for fetching Northeast India specific news
   app.post('/api/fetchNews', isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.claims.sub);
@@ -252,34 +252,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const newsApiKey = process.env.NEWS_API_KEY || process.env.NEWS_API_KEY_ENV_VAR || "default_key";
-      const query = "Northeast India OR Assam OR Meghalaya OR Arunachal Pradesh OR Nagaland OR Manipur OR Mizoram OR Tripura OR Sikkim safety crime accident";
-      
-      const response = await fetch(`https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=en&sortBy=publishedAt&pageSize=20&apiKey=${newsApiKey}`);
-      
-      if (!response.ok) {
-        throw new Error(`NewsAPI error: ${response.status}`);
+      const newsApiKey = process.env.NEWS_API_KEY;
+      if (!newsApiKey) {
+        return res.status(500).json({ message: "News API key not configured" });
       }
+
+      const results = await fetchNortheastNews(newsApiKey, storage);
       
-      const data = await response.json();
-      
-      // Store relevant news in database
-      for (const article of data.articles) {
-        if (article.title && article.description) {
-          await storage.createNewsUpdate({
-            title: article.title,
-            content: article.description,
-            category: 'info',
-            sourceUrl: article.url,
-            publishedAt: new Date(article.publishedAt),
-          });
-        }
-      }
-      
-      res.json({ message: "News fetched and stored successfully", count: data.articles.length });
+      res.json({ 
+        message: "News fetched and stored successfully", 
+        count: results.stored,
+        duplicatesSkipped: results.skipped,
+        errors: results.errors
+      });
     } catch (error) {
       console.error("Error fetching news:", error);
-      res.status(500).json({ message: "Failed to fetch news" });
+      res.status(500).json({ 
+        message: "Failed to fetch news", 
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Auto-refresh news endpoint (internal use only - require auth or internal header)
+  app.post('/api/autoRefreshNews', async (req, res) => {
+    try {
+      // Check for internal request header or require authentication
+      const internalHeader = req.headers['x-internal-request'];
+      const isAuthenticated = req.user?.claims?.sub;
+      
+      if (!internalHeader && !isAuthenticated) {
+        return res.status(401).json({ message: "Unauthorized - internal use only" });
+      }
+      
+      // If authenticated user, check role
+      if (isAuthenticated) {
+        const user = await storage.getUser(req.user.claims.sub);
+        if (user?.role !== 'admin') {
+          return res.status(403).json({ message: "Access denied - admin only" });
+        }
+      }
+
+      const newsApiKey = process.env.NEWS_API_KEY;
+      if (!newsApiKey) {
+        return res.status(500).json({ message: "News API key not configured" });
+      }
+
+      const results = await fetchNortheastNews(newsApiKey, storage);
+      
+      console.log(`Auto-refresh news: ${results.stored} new articles stored, ${results.skipped} skipped`);
+      res.json({ success: true, ...results });
+    } catch (error) {
+      console.error("Auto-refresh news error:", error);
+      res.status(500).json({ success: false, error: error instanceof Error ? error.message : "Unknown error" });
     }
   });
 
@@ -388,6 +413,216 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   return httpServer;
 }
+
+// Enhanced news fetching function for Northeast India
+async function fetchNortheastNews(apiKey: string, storage: any) {
+  const results = { stored: 0, skipped: 0, errors: 0 };
+  
+  // Get existing articles once for efficient duplicate detection
+  const existingNews = await storage.getNewsUpdates();
+  const existingTitles = new Set(existingNews.map((news: any) => news.title));
+  const existingUrls = new Set(existingNews.map((news: any) => news.sourceUrl).filter(Boolean));
+  
+  // Multiple search queries for comprehensive coverage
+  const searchQueries = [
+    'Northeast India tourism safety',
+    'Assam Meghalaya travel advisory',
+    'Arunachal Pradesh Nagaland security',
+    'Manipur Mizoram Tripura news',
+    'Sikkim Northeast weather alert',
+    'India Northeast border tourism',
+  ];
+
+  // State-specific keywords for categorization
+  const stateKeywords = {
+    'Assam': ['Assam', 'Guwahati', 'Dispur', 'Brahmaputra'],
+    'Meghalaya': ['Meghalaya', 'Shillong', 'Cherrapunji', 'Khasi'],
+    'Arunachal Pradesh': ['Arunachal', 'Itanagar', 'Tawang'],
+    'Nagaland': ['Nagaland', 'Kohima', 'Dimapur', 'Naga'],
+    'Manipur': ['Manipur', 'Imphal', 'Loktak'],
+    'Mizoram': ['Mizoram', 'Aizawl', 'Mizo'],
+    'Tripura': ['Tripura', 'Agartala', 'Ujjayanta'],
+    'Sikkim': ['Sikkim', 'Gangtok', 'Nathu La']
+  };
+
+  // Safety keywords for categorization
+  const safetyKeywords = {
+    'emergency': ['emergency', 'disaster', 'earthquake', 'flood', 'landslide', 'cyclone'],
+    'alert': ['alert', 'warning', 'advisory', 'caution', 'danger', 'risk'],
+    'safety': ['safety', 'security', 'patrol', 'checkpoint', 'safe', 'protection'],
+    'info': ['tourism', 'festival', 'culture', 'travel', 'visit', 'attraction']
+  };
+
+  try {
+    // Fetch from multiple queries to get comprehensive coverage
+    for (const query of searchQueries) {
+      try {
+        const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=en&sortBy=publishedAt&pageSize=50&from=${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}&apiKey=${apiKey}`;
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          console.warn(`NewsAPI error for query "${query}": ${response.status}`);
+          results.errors++;
+          continue;
+        }
+        
+        const data = await response.json();
+        
+        if (data.articles && Array.isArray(data.articles)) {
+          for (const article of data.articles) {
+            try {
+              if (article.title && article.description && article.publishedAt) {
+                // Efficient duplicate detection using Sets
+                const isDuplicate = existingTitles.has(article.title) || 
+                                   (article.url && existingUrls.has(article.url));
+                
+                if (isDuplicate) {
+                  results.skipped++;
+                  continue;
+                }
+
+                // Determine state based on content
+                let detectedState = null;
+                const articleText = `${article.title} ${article.description}`.toLowerCase();
+                
+                for (const [state, keywords] of Object.entries(stateKeywords)) {
+                  if (keywords.some(keyword => articleText.includes(keyword.toLowerCase()))) {
+                    detectedState = state;
+                    break;
+                  }
+                }
+
+                // Determine category based on content
+                let category = 'info';
+                let priority = 'medium';
+                
+                for (const [cat, keywords] of Object.entries(safetyKeywords)) {
+                  if (keywords.some(keyword => articleText.includes(keyword.toLowerCase()))) {
+                    category = cat;
+                    if (cat === 'emergency') priority = 'high';
+                    else if (cat === 'alert') priority = 'high';
+                    else if (cat === 'safety') priority = 'medium';
+                    break;
+                  }
+                }
+
+                // Create news update
+                const newsItem = {
+                  title: article.title.substring(0, 255), // Ensure title fits
+                  content: article.description,
+                  category,
+                  state: detectedState,
+                  priority,
+                  sourceUrl: article.url,
+                  publishedAt: new Date(article.publishedAt),
+                };
+                
+                await storage.createNewsUpdate(newsItem);
+                
+                // Add to existing sets to prevent duplicates within this batch
+                existingTitles.add(newsItem.title);
+                if (newsItem.sourceUrl) {
+                  existingUrls.add(newsItem.sourceUrl);
+                }
+                
+                results.stored++;
+              }
+            } catch (articleError) {
+              console.error('Error processing article:', articleError);
+              results.errors++;
+            }
+          }
+        }
+        
+        // Rate limiting to avoid hitting API limits
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+      } catch (queryError) {
+        console.error(`Error fetching news for query "${query}":`, queryError);
+        results.errors++;
+      }
+    }
+    
+    // Cleanup old news (keep only last 30 days) - proper deletion
+    try {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      
+      // Delete old news instead of just marking as inactive
+      const deletedCount = await storage.deleteOldNewsUpdates(thirtyDaysAgo);
+      
+      if (deletedCount > 0) {
+        console.log(`🧹 Cleaned up ${deletedCount} old news articles`);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up old news:', cleanupError);
+    }
+    
+  } catch (error) {
+    console.error('Critical error in fetchNortheastNews:', error);
+    results.errors++;
+  }
+
+  return results;
+}
+
+// Global variables to track automation
+let newsAutomationStarted = false;
+let autoRefreshInterval: NodeJS.Timeout | null = null;
+
+// Function to start news automation
+function startNewsAutomation() {
+  if (newsAutomationStarted) {
+    console.log('News automation already started');
+    return;
+  }
+  
+  const newsApiKey = process.env.NEWS_API_KEY;
+  if (!newsApiKey) {
+    console.warn('⚠️ NEWS_API_KEY not configured - news automation disabled');
+    return;
+  }
+  
+  console.log('🚀 Starting news automation system...');
+  newsAutomationStarted = true;
+  
+  // Initial news fetch
+  setTimeout(async () => {
+    try {
+      console.log('📰 Fetching initial news data...');
+      const results = await fetchNortheastNews(newsApiKey, storage);
+      console.log(`✅ Initial news fetch completed: ${results.stored} new, ${results.skipped} skipped, ${results.errors} errors`);
+    } catch (error) {
+      console.error('❌ Initial news fetch failed:', error);
+    }
+  }, 10000); // 10 seconds after startup
+  
+  // Auto-refresh news every 6 hours
+  autoRefreshInterval = setInterval(async () => {
+    try {
+      console.log('🔄 Starting scheduled news refresh...');
+      const results = await fetchNortheastNews(newsApiKey, storage);
+      console.log(`✅ Auto-refresh news completed: ${results.stored} new, ${results.skipped} skipped, ${results.errors} errors`);
+    } catch (error) {
+      console.error('❌ Auto-refresh news failed:', error);
+    }
+  }, 6 * 60 * 60 * 1000); // Every 6 hours
+  
+  console.log('✅ News automation scheduled successfully');
+}
+
+// Function to stop news automation
+function stopNewsAutomation() {
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+  }
+  newsAutomationStarted = false;
+  console.log('🛑 News automation stopped');
+}
+
+// Export for external control
+export { startNewsAutomation, stopNewsAutomation };
 
 function broadcastLocationUpdate(location: any, tourist: any) {
   const wss = (global as any).wss;
