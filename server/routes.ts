@@ -50,7 +50,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(tourist);
     } catch (error) {
       console.error("Error registering tourist:", error);
-      res.status(400).json({ message: "Failed to register tourist" });
+      if (error instanceof Error && error.message.includes('foreign key constraint')) {
+        res.status(400).json({ 
+          message: "Session error. Please log out and log back in, then try again." 
+        });
+      } else {
+        res.status(400).json({ message: "Failed to register tourist" });
+      }
     }
   });
 
