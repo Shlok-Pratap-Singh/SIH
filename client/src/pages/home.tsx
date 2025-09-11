@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useSafetyScore } from "@/hooks/useSafetyScore";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useQuery } from "@tanstack/react-query";
 import MobileHeader from "@/components/MobileHeader";
@@ -10,7 +11,7 @@ import PanicButton from "@/components/PanicButton";
 import NewsUpdates from "@/components/NewsUpdates";
 import BottomNavigation from "@/components/BottomNavigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MapPin, Phone, Ambulance } from "lucide-react";
+import { MapPin, Phone, Ambulance, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
@@ -21,6 +22,11 @@ export default function Home() {
     queryKey: ["/api/auth/user"],
     retry: false,
   });
+
+  // Get real-time safety score and location
+  const { safetyScore, zoneType, reason, location, lastUpdated, isLocationAvailable } = useSafetyScore(
+    userProfile?.tourist?.id
+  );
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -77,7 +83,7 @@ export default function Home() {
         {/* Mobile Header */}
         <MobileHeader 
           user={userProfile.user}
-          safetyScore={92}
+          safetyScore={safetyScore}
           data-testid="header-mobile"
         />
 
@@ -127,20 +133,62 @@ export default function Home() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Current Location</CardTitle>
-                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Safe Zone</span>
+                <span className={`text-xs px-2 py-1 rounded-full ${
+                  zoneType === 'safe' ? 'bg-green-100 text-green-800' :
+                  zoneType === 'moderate' ? 'bg-yellow-100 text-yellow-800' :
+                  zoneType === 'forest' ? 'bg-green-200 text-green-900' :
+                  zoneType === 'restricted' ? 'bg-gray-100 text-gray-800' :
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {zoneType.charAt(0).toUpperCase() + zoneType.slice(1)} Zone
+                </span>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
-                  <MapPin className="text-white h-5 w-5" />
+              {isLocationAvailable ? (
+                <div className="flex items-center space-x-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    zoneType === 'safe' ? 'bg-green-500' :
+                    zoneType === 'moderate' ? 'bg-yellow-500' :
+                    zoneType === 'forest' ? 'bg-green-700' :
+                    zoneType === 'restricted' ? 'bg-gray-500' :
+                    'bg-red-500'
+                  }`}>
+                    <MapPin className="text-white h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">
+                      {location?.address || `${location?.latitude.toFixed(4)}, ${location?.longitude.toFixed(4)}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{reason}</div>
+                    <div className="flex items-center space-x-1 mt-1">
+                      <Clock className="h-3 w-3 text-muted-foreground" />
+                      <div className="text-xs text-muted-foreground">
+                        Updated {Math.round((Date.now() - lastUpdated.getTime()) / 60000)} mins ago
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <div className="text-sm font-medium">Guwahati, Assam</div>
-                  <div className="text-xs text-muted-foreground">Near Kamakhya Temple, Tourist Zone</div>
-                  <div className="text-xs text-green-600 mt-1">Last updated: 2 mins ago</div>
+              ) : (
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gray-400 rounded-full flex items-center justify-center">
+                    <MapPin className="text-white h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-muted-foreground">Location unavailable</div>
+                    <div className="text-xs text-muted-foreground">Please enable location services</div>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="mt-2" 
+                      onClick={() => window.location.reload()}
+                      data-testid="button-refresh-location"
+                    >
+                      Refresh Location
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 

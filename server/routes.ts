@@ -257,6 +257,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get tourist's latest location
+  app.get('/api/tourist/location/:touristId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { touristId } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify the tourist belongs to this user or user is police/admin
+      const user = await storage.getUser(userId);
+      const tourist = await storage.getTourist(touristId);
+      
+      if (!tourist) {
+        return res.status(404).json({ message: "Tourist not found" });
+      }
+      
+      if (tourist.userId !== userId && user?.role !== 'police' && user?.role !== 'admin') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const location = await storage.getLatestTouristLocation(touristId);
+      res.json(location);
+    } catch (error) {
+      console.error("Error fetching tourist location:", error);
+      res.status(500).json({ message: "Failed to fetch tourist location" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // WebSocket server for real-time updates
