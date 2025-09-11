@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useSafetyScore } from "@/hooks/useSafetyScore";
+import { useLocationTracking } from "@/hooks/useLocationTracking";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useQuery } from "@tanstack/react-query";
 import MobileHeader from "@/components/MobileHeader";
@@ -11,7 +12,7 @@ import PanicButton from "@/components/PanicButton";
 import NewsUpdates from "@/components/NewsUpdates";
 import BottomNavigation from "@/components/BottomNavigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MapPin, Phone, Ambulance, Clock } from "lucide-react";
+import { MapPin, Phone, Ambulance, Clock, Navigation, Play, Pause } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
@@ -23,9 +24,20 @@ export default function Home() {
     retry: false,
   });
 
-  // Get real-time safety score and location
+  // Location tracking functionality
+  const {
+    isTracking, 
+    currentLocation, 
+    startTracking, 
+    stopTracking, 
+    isUpdating,
+    lastUpdateError
+  } = useLocationTracking(userProfile?.tourist);
+
+  // Get real-time safety score based on tracked location
   const { safetyScore, zoneType, reason, location, lastUpdated, isLocationAvailable } = useSafetyScore(
-    userProfile?.tourist?.id
+    userProfile?.tourist?.id,
+    currentLocation || undefined
   );
 
   useEffect(() => {
@@ -128,46 +140,79 @@ export default function Home() {
             </Button>
           </div>
 
-          {/* Current Location */}
-          <Card className="shadow-sm" data-testid="card-current-location">
+          {/* Location Tracking Status */}
+          <Card className="shadow-sm" data-testid="card-location-tracking">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Current Location</CardTitle>
-                <span className={`text-xs px-2 py-1 rounded-full ${
-                  zoneType === 'safe' ? 'bg-green-100 text-green-800' :
-                  zoneType === 'moderate' ? 'bg-yellow-100 text-yellow-800' :
-                  zoneType === 'forest' ? 'bg-green-200 text-green-900' :
-                  zoneType === 'restricted' ? 'bg-gray-100 text-gray-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  {zoneType.charAt(0).toUpperCase() + zoneType.slice(1)} Zone
-                </span>
+                <CardTitle className="text-base flex items-center space-x-2">
+                  <Navigation className="h-4 w-4" />
+                  <span>Location Tracking</span>
+                </CardTitle>
+                <div className="flex items-center space-x-2">
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    isTracking ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {isTracking ? 'Active' : 'Inactive'}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={isTracking ? stopTracking : startTracking}
+                    disabled={isUpdating}
+                    data-testid={isTracking ? "button-stop-tracking" : "button-start-tracking"}
+                  >
+                    {isTracking ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
-              {isLocationAvailable ? (
-                <div className="flex items-center space-x-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    zoneType === 'safe' ? 'bg-green-500' :
-                    zoneType === 'moderate' ? 'bg-yellow-500' :
-                    zoneType === 'forest' ? 'bg-green-700' :
-                    zoneType === 'restricted' ? 'bg-gray-500' :
-                    'bg-red-500'
-                  }`}>
-                    <MapPin className="text-white h-5 w-5" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">
-                      {location?.address || `${location?.latitude.toFixed(4)}, ${location?.longitude.toFixed(4)}`}
+              {currentLocation ? (
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      currentLocation.safetyZone === 'safe' ? 'bg-green-500' :
+                      currentLocation.safetyZone === 'moderate' ? 'bg-yellow-500' :
+                      currentLocation.safetyZone === 'forest' ? 'bg-green-700' :
+                      currentLocation.safetyZone === 'restricted' ? 'bg-gray-500' :
+                      'bg-red-500'
+                    } ${isUpdating ? 'animate-pulse' : ''}`}>
+                      <MapPin className="text-white h-5 w-5" />
                     </div>
-                    <div className="text-xs text-muted-foreground">{reason}</div>
-                    <div className="flex items-center space-x-1 mt-1">
-                      <Clock className="h-3 w-3 text-muted-foreground" />
-                      <div className="text-xs text-muted-foreground">
-                        Updated {Math.round((Date.now() - lastUpdated.getTime()) / 60000)} mins ago
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">
+                        {currentLocation.address || `${currentLocation.latitude.toFixed(4)}, ${currentLocation.longitude.toFixed(4)}`}
+                      </div>
+                      <div className={`text-xs px-2 py-1 rounded-full inline-block mt-1 ${
+                        currentLocation.safetyZone === 'safe' ? 'bg-green-100 text-green-800' :
+                        currentLocation.safetyZone === 'moderate' ? 'bg-yellow-100 text-yellow-800' :
+                        currentLocation.safetyZone === 'forest' ? 'bg-green-200 text-green-900' :
+                        currentLocation.safetyZone === 'restricted' ? 'bg-gray-100 text-gray-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {currentLocation.safetyZone.charAt(0).toUpperCase() + currentLocation.safetyZone.slice(1)} Zone • Score: {currentLocation.safetyScore}/100
                       </div>
                     </div>
                   </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center space-x-1">
+                      <Clock className="h-3 w-3" />
+                      <span>{new Date(currentLocation.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    {currentLocation.accuracy && (
+                      <div className="flex items-center space-x-1">
+                        <div className="w-3 h-3 rounded-full bg-blue-500" />
+                        <span>±{Math.round(currentLocation.accuracy)}m</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {lastUpdateError && (
+                    <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
+                      Failed to sync location to server
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center space-x-3">
@@ -175,17 +220,8 @@ export default function Home() {
                     <MapPin className="text-white h-5 w-5" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-sm font-medium text-muted-foreground">Location unavailable</div>
-                    <div className="text-xs text-muted-foreground">Please enable location services</div>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="mt-2" 
-                      onClick={() => window.location.reload()}
-                      data-testid="button-refresh-location"
-                    >
-                      Refresh Location
-                    </Button>
+                    <div className="text-sm font-medium text-muted-foreground">No location data</div>
+                    <div className="text-xs text-muted-foreground">Start tracking to monitor your safety</div>
                   </div>
                 </div>
               )}
