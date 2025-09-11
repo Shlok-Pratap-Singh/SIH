@@ -1,0 +1,75 @@
+Build a full-stack project called **Smart Tourist Safety System – Northeast India Edition** with the following requirements:
+
+### 1. Tech Stack
+- **Mobile App (Tourist side)** → Flutter (cross-platform Android/iOS).  
+- **Web Dashboard (Police/Tourism side)** → React.js.  
+- **Backend** → Node.js with Express.js REST API.  
+- **Database** → PostgreSQL.  
+- **Maps/Geo-fencing** → Google Maps API or OpenStreetMap.  
+- **News/Crime Feed** → Use NewsAPI or Google News RSS integration.  
+- **Blockchain Simulation** → Use Ethereum testnet or Hyperledger for tamper-proof Digital Tourist ID records. (For MVP, allow mock hashed IDs.)  
+
+---
+
+### 2. Features (Tourist Mobile App)
+- **Digital ID Registration**:  
+  - Tourist registers with Aadhaar/Passport number (dummy validation for MVP).  
+  - Generates a **QR Code ID** valid only for Northeast travel.  
+
+- **Geo-fencing Alerts**:  
+  - Restrict map functionality to Northeast India (Assam, Meghalaya, Arunachal, Nagaland, Manipur, Mizoram, Tripura, Sikkim).  
+  - Alert tourists if they enter restricted/high-risk zones.  
+
+- **Panic Button**:  
+  - Sends live GPS + tourist ID to the **nearest police station** and emergency contacts.  
+
+- **Tourist Safety Score**:  
+  - Basic rule-based system (e.g., isolated zones at night → lower score).  
+
+- **Live News & Crime Updates**:  
+  - Fetch and display recent **accidents, crime reports, or unrest** from local news APIs filtered to Northeast.  
+
+- **Color-Coded Safety Map**:  
+  - Define zones with different colors:  
+    - Safe → Light Green  
+    - Moderate Risk → Yellow  
+    - Unsafe/High Risk → Red  
+    - Forest/Protected Zone → Dark Green  
+    - Border/Restricted → Grey  
+
+- **Multilingual Support**:  
+  - English + Hindi + Assamese (expand later to Bengali, Manipuri, Khasi, Mizo, Nagamese).  
+
+---
+
+### 3. Police/Tourism Dashboard (Web)
+- Login for **Northeast police & tourism officials**.  
+- **Map-based dashboard** with same color-coded scheme as app.  
+- Real-time visualization of tourist clusters and alerts.  
+- Access to tourist Digital IDs + trip info.  
+- Logs of **alerts, missing tourist reports, accident updates**.  
+- Ability to **push safety advisories** directly to tourist apps.  
+
+---
+
+### 4. Backend APIs
+- `POST /registerTourist` → Register and generate Digital ID (QR code).  
+- `POST /updateLocation` → Update tourist GPS coordinates.  
+- `POST /panicAlert` → Send panic alert to police + emergency contacts.  
+- `GET /getSafetyZones` → Return safety classification of areas.  
+- `GET /getNewsUpdates` → Fetch recent crime/accident news for given location.  
+
+---
+
+### 5. Deployment
+- Deploy backend on Render/Heroku.  
+- Deploy dashboard on Vercel.  
+- Mobile app build for Android + iOS using Flutter.  
+
+---
+
+### Notes
+- Keep code modular, well-documented, and region-restricted to **Northeast India only**.  
+- For MVP, mock blockchain by storing hashed IDs if full blockchain integration is complex.  
+- Ensure all communication is secure (JWT auth, HTTPS).  
+
