@@ -28,15 +28,12 @@ export function useLocationTracking(tourist?: Tourist) {
   // Mutation to update location on server
   const updateLocationMutation = useMutation({
     mutationFn: async (location: Omit<LocationData, 'timestamp'>) => {
-      return apiRequest('/api/updateLocation', {
-        method: 'POST',
-        body: {
-          latitude: location.latitude.toString(),
-          longitude: location.longitude.toString(),
-          address: location.address,
-          safetyZone: location.safetyZone,
-          safetyScore: location.safetyScore,
-        },
+      return apiRequest('POST', '/api/updateLocation', {
+        latitude: location.latitude.toString(),
+        longitude: location.longitude.toString(),
+        address: location.address,
+        safetyZone: location.safetyZone,
+        safetyScore: location.safetyScore,
       });
     },
     onSuccess: () => {
