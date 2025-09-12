@@ -4,7 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
-import SafetyMap from "@/components/SafetyMap";
+import InteractiveMap from "@/components/InteractiveMap";
 import BottomNavigation from "@/components/BottomNavigation";
 
 export default function Map() {
@@ -58,7 +58,7 @@ export default function Map() {
 
         {/* Full Map */}
         <div className="p-4">
-          <SafetyMap preview={false} data-testid="map-safety-full" />
+          <InteractiveMap preview={false} height="h-96" data-testid="map-interactive-full" />
         </div>
 
         {/* Bottom Navigation */}
