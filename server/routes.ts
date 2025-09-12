@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import { SafetyScoringService } from "./SafetyScoringService";
 import {
   insertTouristSchema,
   insertTouristLocationSchema,
@@ -151,12 +152,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get safety zones
+  // Get safety zones with computed scores
   app.get('/api/getSafetyZones', async (req, res) => {
     try {
       const { state } = req.query;
       const zones = await storage.getSafetyZones(state as string);
-      res.json(zones);
+      const scoringService = SafetyScoringService.getInstance();
+      
+      // Check if scores need updating
+      if (scoringService.shouldUpdateScores()) {
+        await scoringService.updateAllZoneScores();
+      }
+      
+      // Enhance zones with computed scores
+      const enhancedZones = zones.map(zone => {
+        const computedScore = scoringService.getZoneScore(zone.id);
+        return {
+          ...zone,
+          computedScore: computedScore?.score || zone.riskLevel || 50,
+          confidence: computedScore?.confidence || 0.5,
+          category: computedScore?.category || 'moderate',
+          scoreFactors: computedScore?.factors || null,
+          lastUpdated: computedScore?.lastUpdated || new Date()
+        };
+      });
+      
+      res.json(enhancedZones);
     } catch (error) {
       console.error("Error fetching safety zones:", error);
       res.status(500).json({ message: "Failed to fetch safety zones" });

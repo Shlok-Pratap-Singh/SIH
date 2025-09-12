@@ -31,9 +31,10 @@ function Router() {
           <Route path="/" component={Home} />
           <Route path="/register" component={Registration} />
           <Route path="/dashboard" component={Dashboard} />
-          <Route path="/map" component={Map} />
         </>
       )}
+      {/* Always register /map route to avoid 404, but handle auth inside component */}
+      <Route path="/map" component={Map} />
       <Route component={NotFound} />
     </Switch>
   );

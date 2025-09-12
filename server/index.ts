@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes, startNewsAutomation } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { SafetyScoringService } from "./SafetyScoringService";
 
 const app = express();
 app.use(express.json());
@@ -41,6 +42,10 @@ app.use((req, res, next) => {
   
   // Start news automation system after routes are set up
   startNewsAutomation();
+  
+  // Start safety scoring service
+  const scoringService = SafetyScoringService.getInstance();
+  scoringService.startAutoUpdate();
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
